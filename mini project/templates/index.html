@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IDS Command Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        :root {
+            --bg-base: #050510;
+            --surface-1: #0a0e1c;
+            --surface-2: #12182b;
+            --primary: #00e5ff;
+            --danger: #ff2a5f;
+            --success: #00ff88;
+            --text-main: #e2f1ff;
+            --text-mut: #6b829e;
+            --border: rgba(0, 229, 255, 0.15);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Chakra Petch', sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Scanline Overlay */
+        body::before {
+            content: ""; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            pointer-events: none; z-index: 999; opacity: 0.6;
+        }
+
+        /* Top Navigation */
+        .navbar {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 15px 30px; background: var(--surface-1);
+            border-bottom: 2px solid var(--primary);
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+        }
+
+        .navbar h1 { font-size: 1.8rem; text-transform: uppercase; letter-spacing: 2px; color: #fff; text-shadow: 0 0 10px var(--primary); }
+        .navbar h1 i { color: var(--primary); margin-right: 10px; }
+
+        .btn-scan {
+            background: rgba(0, 229, 255, 0.1); border: 1px solid var(--primary);
+            color: var(--primary); padding: 10px 25px; font-family: inherit; font-weight: 700;
+            font-size: 1rem; cursor: pointer; transition: 0.3s; text-transform: uppercase;
+            box-shadow: inset 0 0 10px rgba(0, 229, 255, 0.2);
+        }
+        .btn-scan:hover { background: var(--primary); color: var(--bg-base); box-shadow: 0 0 20px var(--primary); }
+
+        /* Main Grid */
+        .grid-container {
+            display: grid; grid-template-columns: 300px 1fr 400px; grid-template-rows: 1fr 1fr;
+            gap: 20px; padding: 20px; flex-grow: 1; height: calc(100vh - 70px);
+        }
+
+        .panel {
+            background: var(--surface-1); border: 1px solid var(--border);
+            border-radius: 8px; display: flex; flex-direction: column; overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); position: relative;
+        }
+        
+        .panel::after {
+            content: ''; position: absolute; top: 0; left: 0; width: 30px; height: 30px;
+            border-top: 2px solid var(--primary); border-left: 2px solid var(--primary);
+            border-top-left-radius: 8px; pointer-events: none;
+        }
+
+        .panel-header {
+            background: var(--surface-2); padding: 12px 20px; font-weight: 700;
+            border-bottom: 1px solid var(--border); color: var(--primary);
+            display: flex; align-items: center; gap: 10px; text-transform: uppercase;
+        }
+
+        .panel-content { padding: 15px; overflow-y: auto; flex-grow: 1; font-family: 'JetBrains Mono', monospace; }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: var(--surface-1); }
+        ::-webkit-scrollbar-thumb { background: var(--primary); border-radius: 5px; }
+
+        /* Specific Panel Assignments */
+        .p-radar { grid-column: 1; grid-row: 1 / 3; }
+        .p-charts { grid-column: 2; grid-row: 1; display: flex; justify-content: center; align-items: center; padding: 20px;}
+        .p-alerts { grid-column: 2; grid-row: 2; }
+        .p-threats { grid-column: 3; grid-row: 1 / 3; border-color: rgba(255, 42, 95, 0.3); }
+        .p-threats .panel-header { color: var(--danger); border-bottom-color: rgba(255, 42, 95, 0.3); }
+
+        /* --- Components --- */
+        
+        /* Threat Cards */
+        .threat-card {
+            background: rgba(255, 42, 95, 0.05); border: 1px solid rgba(255, 42, 95, 0.2);
+            border-left: 4px solid var(--danger); padding: 15px; margin-bottom: 15px; border-radius: 4px;
+        }
+        .threat-ip { font-size: 1.2rem; font-weight: 700; color: #fff; margin-bottom: 5px; display: block; }
+        .threat-type { color: var(--danger); font-size: 0.85rem; background: rgba(255, 42, 95, 0.1); padding: 2px 6px; border-radius: 3px; }
+        .btn-row { display: flex; gap: 10px; margin-top: 15px; }
+        .action-btn {
+            flex: 1; padding: 8px; border: none; font-family: 'Chakra Petch'; font-weight: 700;
+            cursor: pointer; transition: 0.2s; border-radius: 3px; font-size: 0.9rem;
+        }
+        .b-block { background: rgba(255, 42, 95, 0.1); border: 1px solid var(--danger); color: var(--danger); }
+        .b-block:hover { background: var(--danger); color: #fff; box-shadow: 0 0 10px var(--danger); }
+        .b-unblock { background: rgba(0, 255, 136, 0.1); border: 1px solid var(--success); color: var(--success); }
+        .b-unblock:hover { background: var(--success); color: #000; box-shadow: 0 0 10px var(--success); }
+
+        /* Alert Log */
+        .log-entry {
+            display: flex; justify-content: space-between; padding: 8px 0; font-size: 0.85rem;
+            border-bottom: 1px dashed var(--border);
+        }
+        .log-time { color: var(--text-mut); }
+        .log-ip { color: #fff; }
+        .log-type { color: var(--danger); }
+
+        /* Network Devices */
+        .net-item {
+            display: flex; align-items: center; justify-content: space-between;
+            background: rgba(0, 229, 255, 0.05); padding: 10px; border-radius: 4px; margin-bottom: 8px; font-size: 0.85rem;
+        }
+
+        /* Radar Animation */
+        .radar-container {
+            width: 200px; height: 200px; border-radius: 50%; border: 2px solid var(--primary);
+            margin: 20px auto; position: relative; overflow: hidden;
+            background: repeating-radial-gradient(rgba(0, 229, 255, 0.1) 0, transparent 10px, rgba(0, 229, 255, 0.1) 20px);
+            box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+        }
+        .radar-container::after {
+            content: ""; position: absolute; top: 50%; left: 50%; width: 100px; height: 100px;
+            background: conic-gradient(transparent 75%, rgba(0, 229, 255, 0.8) 100%);
+            transform-origin: 0 0; animation: scan 2s linear infinite;
+        }
+        @keyframes scan { 100% { transform: rotate(360deg); } }
+
+        .empty-state { text-align: center; color: var(--text-mut); margin-top: 20px; font-family: 'JetBrains Mono'; }
+        
+        .chart-container { width: 100%; height: 100%; position: relative; }
+    </style>
+</head>
+<body>
+
+    <div class="navbar">
+        <h1><i class="fa-solid fa-shield-virus"></i> Nighthawk IDS</h1>
+        <button class="btn-scan" onclick="scanNetwork()"><i class="fa-solid fa-satellite-dish"></i> Ping Sweep Subnet</button>
+    </div>
+
+    <div class="grid-container">
+        
+        <div class="panel p-radar">
+            <div class="panel-header"><i class="fa-solid fa-network-wired"></i> Local Nodes</div>
+            <div class="panel-content">
+                <div class="radar-container" id="radar-ui" style="display: none;"></div>
+                <div id="network">
+                    <div class="empty-state">Standby.<br>Initiate sweep to map devices.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="panel p-charts">
+            <div class="chart-container">
+                <canvas id="threatChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel p-alerts">
+            <div class="panel-header"><i class="fa-solid fa-list-ul"></i> Traffic Anomalies</div>
+            <div class="panel-content" id="alerts"></div>
+        </div>
+
+        <div class="panel p-threats">
+            <div class="panel-header"><i class="fa-solid fa-crosshairs"></i> Hostile IP Tracking</div>
+            <div class="panel-content" id="attackers">
+                <div class="empty-state" style="color: var(--success);">[ SECURE - NO THREATS ]</div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // Initialize Chart.js
+        Chart.defaults.color = '#6b829e';
+        Chart.defaults.font.family = "'JetBrains Mono', monospace";
+        
+        let ctx = document.getElementById('threatChart').getContext('2d');
+        let threatChart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Scanning', 'Flooding', 'Safe'],
+                datasets: [{
+                    data: [0, 0, 100],
+                    backgroundColor: ['#ff2a5f', '#ff9900', '#00e5ff'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'right' },
+                    title: { display: true, text: 'THREAT DISTRIBUTION', color: '#00e5ff', font: {size: 16, family: 'Chakra Petch'} }
+                },
+                cutout: '70%'
+            }
+        });
+
+        // 🧠 Browser Memory to track which IPs are currently blocked
+        let blockedIPs = new Set();
+
+        async function load() {
+            try {
+                let res = await fetch('/data');
+                let data = await res.json();
+
+                // 1. Update Attackers Panel
+                let a = document.getElementById("attackers");
+                if(data.attackers.length > 0) {
+                    a.innerHTML = "";
+                    
+                    // Chart Logic variables
+                    let scanCount = 0;
+                    let floodCount = 0;
+
+                    data.attackers.forEach(x => {
+                        // Count for chart
+                        if(x.type.includes("Scan") || x.type.includes("Sweep")) scanCount++;
+                        else floodCount++;
+
+                        // 🔍 Check our memory to see if this IP was already blocked
+                        let isBlocked = blockedIPs.has(x.ip);
+                        
+                        // If it's blocked, render the ENFORCED button. Otherwise, render the standard BLOCK button.
+                        let blockBtnHTML = isBlocked ? 
+                            `<button class="action-btn" style="background: var(--danger); color: #fff; cursor: default;">ENFORCED</button>` : 
+                            `<button class="action-btn b-block" onclick="blockIP('${x.ip}', this)">BLOCK</button>`;
+
+                        a.innerHTML += `
+                        <div class="threat-card">
+                            <span class="threat-ip">${x.ip}</span>
+                            <span class="threat-type"><i class="fa-solid fa-biohazard"></i> ${x.type}</span>
+                            <div class="btn-row">
+                                ${blockBtnHTML}
+                                <button class="action-btn b-unblock" onclick="unblockIP('${x.ip}')">UNBLOCK</button>
+                            </div>
+                        </div>`;
+                    });
+
+                    // Update Chart Data
+                    threatChart.data.datasets[0].data = [scanCount, floodCount, 0];
+                    threatChart.update();
+
+                } else {
+                    threatChart.data.datasets[0].data = [0, 0, 100];
+                    threatChart.update();
+                }
+
+                // 2. Update Alerts Panel
+                let al = document.getElementById("alerts");
+                al.innerHTML = "";
+                data.alerts.slice().reverse().forEach(x => {
+                    al.innerHTML += `
+                    <div class="log-entry">
+                        <span class="log-time">[${x.time}]</span>
+                        <span class="log-ip">${x.ip}</span>
+                        <span class="log-type">${x.type}</span>
+                    </div>`;
+                });
+
+            } catch (err) { console.log("Awaiting API..."); }
+        }
+
+        function blockIP(ip, btn) {
+            fetch('/block/' + ip, {method: 'POST'});
+            blockedIPs.add(ip); // 💾 Save to memory
+            
+            // Instant UI update
+            btn.innerHTML = "ENFORCED";
+            btn.style.background = "var(--danger)";
+            btn.style.color = "#fff";
+            btn.onclick = null; // Disable clicking it again
+        }
+
+        function unblockIP(ip) {
+            fetch('/unblock/' + ip, {method: 'POST'});
+            blockedIPs.delete(ip); // 🗑️ Remove from memory
+            
+            // The UI will automatically revert to "BLOCK" on the next 2-second refresh
+        }
+
+        async function scanNetwork() {
+            let div = document.getElementById("network");
+            let radar = document.getElementById("radar-ui");
+            
+            div.innerHTML = "";
+            radar.style.display = "block"; // Show radar animation
+            
+            try {
+                let res = await fetch('/network');
+                let data = await res.json();
+                
+                radar.style.display = "none"; // Hide radar
+
+                if(data.length === 0) {
+                    div.innerHTML = `<div class="empty-state">No nodes detected.</div>`;
+                } else {
+                    data.forEach(d => {
+                        div.innerHTML += `
+                        <div class="net-item">
+                            <span><i class="fa-solid fa-desktop" style="color:var(--primary)"></i> &nbsp;${d.ip}</span>
+                            <span style="color:var(--text-mut)">${d.mac}</span>
+                        </div>`;
+                    });
+                }
+            } catch(err) {
+                radar.style.display = "none";
+                div.innerHTML = `<div class="empty-state" style="color:var(--danger);">Scan failed.</div>`;
+            }
+        }
+
+        setInterval(load, 2000);
+        load();
+    </script>
+</body>
+</html>
